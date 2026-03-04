@@ -2,10 +2,78 @@
 #include <stdio.h>
 
 #include <stdlib.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 
+#define WIDTH 80
+#define SAVE_CURSOR() fputs("\033[s", stdout)
+#define RESTORE_CURSOR() fputs("\033[u", stdout)
+
 struct termios orig_term;
+
+typedef enum {
+  NORMAL,
+  INSERT
+
+} MODE_ENUM;
+
+typedef enum { NONE, UP, DOWN, LEFT, RIGHT, ESCAPE } ACTION_ENUM;
+
+typedef struct {
+  MODE_ENUM _mode;
+  ACTION_ENUM _action;
+  char *_curr_buff;
+} kidine_t;
+
+kidine_t *init_editor(const char *_filename) {
+  kidine_t *k = malloc(sizeof(kidine_t));
+  k->_curr_buff = malloc(sizeof(strlen(_filename)));
+  memcpy(k->_curr_buff, _filename, strlen(_filename));
+  return k;
+}
+
+static kidine_t editor;
+void kidine_change_action(kidine_t *k, ACTION_ENUM ac) { k->_action = ac; }
+void kidine_change_mode(kidine_t *k, MODE_ENUM md) { k->_mode = md; }
+
+const char *action_enum_to_str(ACTION_ENUM enm) {
+  switch (enm) {
+  case DOWN:
+    return "move down";
+  case UP:
+    return "move up";
+  case LEFT:
+    return "move left";
+  case RIGHT:
+    return "move right";
+  case NONE:
+    return "none";
+  case ESCAPE:
+    return "escape";
+  default:
+    return "unk";
+  }
+}
+
+const char *get_mode_str(kidine_t *k) {
+  switch (k->_mode) {
+  case NORMAL:
+    return "NORMAL";
+  case INSERT:
+    return "INSERT";
+  }
+}
+
+void render_info(kidine_t *k, int *view_offset) {
+  RESTORE_CURSOR();
+  printf("offset:       %d\n", *view_offset);
+  printf("mode:         %s\n", get_mode_str(k));
+  printf("action:       %s\n", action_enum_to_str(k->_action));
+  printf("buffer name:  %s\n", k->_curr_buff);
+  fflush(stdout);
+}
+
 long get_file_size(int fd) {
   off_t current = lseek(fd, 0, SEEK_CUR);
   if (current == (off_t)-1) {
@@ -34,10 +102,6 @@ void enable_raw_mode(struct termios *orig_term) {
   raw.c_lflag &= ~(ECHO | ICANON);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
-
-#define WIDTH 80
-#define SAVE_CURSOR() fputs("\033[s", stdout)
-#define RESTORE_CURSOR() fputs("\033[u", stdout)
 
 void render(char *content) {
   printf("\033[s"); // salva posição
@@ -84,29 +148,6 @@ void clear_screen() {
   fflush(stdout);    // força o terminal a desenhar
 }
 
-void hmove(char *inp, int *offset) {}
-
-typedef enum { NONE, UP, DOWN, LEFT, RIGHT, ESCAPE } ACTION_ENUM;
-
-const char *action_enum_to_str(ACTION_ENUM enm) {
-  switch (enm) {
-  case DOWN:
-    return "move down";
-  case UP:
-    return "move up";
-  case LEFT:
-    return "move left";
-  case RIGHT:
-    return "move right";
-  case NONE:
-    return "none";
-  case ESCAPE:
-    return "escape";
-  default:
-    return "unk";
-  }
-}
-
 int main(int argn, char **argv) {
   if (argn == 1) {
     printf("required file.\n");
@@ -128,52 +169,52 @@ int main(int argn, char **argv) {
   enable_raw_mode(&orig_term);
 
   char inp = 0;
-  vec2 file_props = get_line_col(buffer);
 
   char view_buffer[80];
   clear_screen();
   build_view(buffer, 0, view_buffer);
   render(view_buffer);
   static int offset = 0;
-  static ACTION_ENUM curr_action = NONE;
   SAVE_CURSOR();
+  render_info(&editor, &offset);
   while (read(STDIN_FILENO, &inp, 1) == 1 && inp != 'q') {
     switch (inp) {
     case 'l':
     case 'L':
-      if (offset == file_size - 1)
+      if (offset == file_size)
         break;
       offset++;
-      curr_action = RIGHT;
+      kidine_change_action(&editor, RIGHT);
       break;
     case 'h':
     case 'H':
       if (offset <= 0)
         break;
       offset--;
-      curr_action = LEFT;
+      kidine_change_action(&editor, LEFT);
       break;
     default:
       break;
     case 'j':
     case 'J':
-      curr_action = DOWN;
+      kidine_change_action(&editor, DOWN);
       break;
     case 'k':
     case 'K':
-      curr_action = UP;
+      kidine_change_action(&editor, UP);
       break;
+    case 'i':
+      kidine_change_mode(&editor, INSERT);
+      break;
+    case 'I':
     case 27:
-      curr_action = ESCAPE;
+      kidine_change_action(&editor, ESCAPE);
       break;
     }
     clear_screen();
-    build_view(buffer, offset, view_buffer);
     render(view_buffer);
-    printf("file loaded: %s\n", file_name);
-    printf("offset: %d\n", offset);
-    printf("action: %s\n", action_enum_to_str(curr_action));
-    printf("byte: %d\n", inp);
+    build_view(buffer, offset, view_buffer);
+    render_info(&editor, &offset);
     RESTORE_CURSOR();
     fflush(stdout);
   }
