@@ -2,7 +2,6 @@
 #include <stdio.h>
 
 #include <stdlib.h>
-#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -138,7 +137,6 @@ int main(int argn, char **argv) {
   static int offset = 0;
   static ACTION_ENUM curr_action = NONE;
   SAVE_CURSOR();
-
   while (read(STDIN_FILENO, &inp, 1) == 1 && inp != 'q') {
     switch (inp) {
     case 'l':
@@ -172,6 +170,7 @@ int main(int argn, char **argv) {
     clear_screen();
     build_view(buffer, offset, view_buffer);
     render(view_buffer);
+    printf("file loaded: %s\n", file_name);
     printf("offset: %d\n", offset);
     printf("action: %s\n", action_enum_to_str(curr_action));
     printf("byte: %d\n", inp);
